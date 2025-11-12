@@ -7,6 +7,14 @@
 #include <string.h>
 #include "heatshrink_decoder.h"
 
+#include "private/hs_arch.hpp"
+
+// Compile-time safety checks for platform requirements
+static_assert(heatshrink::Arch::UNALIGNED_ACCESS_OK,
+    "The 32-bit optimized heatshrink requires a platform that supports unaligned memory access. "
+    "If your platform does support unaligned access but this check fails, please update "
+    "private/hs_arch.hpp to recognize your architecture.");
+
 
 
 /* States for the polling state machine. */

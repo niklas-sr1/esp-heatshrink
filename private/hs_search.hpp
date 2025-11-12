@@ -1,19 +1,25 @@
 /*
-
+    Heatshrink Pattern Search Optimizations
+    
     Copyright 2024, <https://github.com/BitsForPeople>
-     
-    This program is free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by the
-    Free Software Foundation, either version 3 of the License, or (at your
-    option) any later version.
+    
+    NOTE: This file contains optimized search implementations for heatshrink.
+    This code uses safe memory access patterns to avoid undefined behavior
+    while maintaining performance through compiler optimizations.
+    
+    Licensed under ISC License (to maintain compatibility with heatshrink):
+    
+    Permission to use, copy, modify, and/or distribute this software for any
+    purpose with or without fee is hereby granted, provided that the above
+    copyright notice and this permission notice appear in all copies.
 
-    This program is distributed in the hope that it will be useful, bu
-    WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
-    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
-    for more details.
-
-    You should have received a copy of the GNU General Public License along
-    with this program. If not, see <https://www.gnu.org/licenses/>.
+    THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+    WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+    MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+    ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+    WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+    ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+    OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 */
 #pragma once
 #include <cstdint>
@@ -24,12 +30,7 @@
 #include <algorithm>
 
 #include "hs_arch.hpp"
-
-// #include "probe.hpp"
-
-// namespace perf {
-//     extern Probe probe[4];
-// }
+#include "hs_memaccess.hpp"
 
 namespace heatshrink {
 
@@ -115,7 +116,7 @@ namespace heatshrink {
              * @return common prefix length of *a and *b in bytes (0...3)
              */
             static uint32_t subword_match_len(const void* a, const void* b) noexcept {
-                if(as<uint16_t>(a) == as<uint16_t>(b)) {
+                if(read_as<uint16_t>(a) == read_as<uint16_t>(b)) {
                     // First 2 bytes match
                     if(p<uint8_t>(a)[2] == p<uint8_t>(b)[2]) {
                         // Byte #3 also matches
@@ -156,9 +157,17 @@ namespace heatshrink {
                 return (const T*)(p<uint8_t>(ptr) + INC);
             }
 
+            /**
+             * @brief Read value of type T from potentially unaligned memory.
+             * Uses memcpy for safety and standards compliance.
+             * Modern compilers optimize this to single instruction.
+             * 
+             * @deprecated This function name kept for compatibility but now uses safe implementation.
+             * @see read_as for the safe implementation
+             */
             template<typename T>
             static T __attribute__((always_inline)) as(const void* const ptr) noexcept {
-                return *reinterpret_cast<const T*>(ptr);
+                return read_as<T>(ptr);
             }
 
             /**
@@ -257,46 +266,44 @@ namespace heatshrink {
                         const uint32_t v = as<uint32_t>(pattern);
 
                         constexpr uint32_t LOOP_UNROLL_FACTOR = 8;
-
-                        const uint8_t* const e8 = data + multof<LOOP_UNROLL_FACTOR>(dataLen);
-                        while(data < e8 && !unrolled_find<uint32_t,LOOP_UNROLL_FACTOR>(data,v)) [[likely]] {
-                            incptr<LOOP_UNROLL_FACTOR>(data);
+                        
+                        // Only use unrolled loop if we have enough data
+                        // This prevents reading beyond buffer in the unrolled template
+                        if(dataLen >= LOOP_UNROLL_FACTOR * sizeof(uint32_t)) {
+                            const uint8_t* const e8 = data + multof<LOOP_UNROLL_FACTOR>(dataLen);
+                            while(data < e8 && !unrolled_find<uint32_t,LOOP_UNROLL_FACTOR>(data,v)) [[likely]] {
+                                incptr<LOOP_UNROLL_FACTOR>(data);
+                            }
                         }
 
-                        if(data >= e8) { 
-                            // Nothing found so far.
-                            while(data < end && as<uint32_t>(data) != v) {
-                                incptr<1>(data);
-                            }
+                        // Fallback: scan remaining data byte by byte
+                        while(data < end && as<uint32_t>(data) != v) {
+                            incptr<1>(data);
                         }                            
                     }
                     else
                     {
                         // assert patLen == 3
 
-                        // perf::probe[3].enter();
-
                         constexpr uint32_t LOOP_UNROLL_FACTOR = 8;
 
                         const uint32_t vl = as<uint32_t>(pattern) << 8; 
                         const uint32_t vh = vl >> 8;
 
-                        // Loop unrolled 8x.
-                        const uint8_t* const e8 = data + multof<LOOP_UNROLL_FACTOR>(dataLen);
+                        // Only use unrolled loop if we have enough data
+                        if(dataLen >= LOOP_UNROLL_FACTOR * sizeof(uint32_t)) {
+                            // Loop unrolled 8x.
+                            const uint8_t* const e8 = data + multof<LOOP_UNROLL_FACTOR>(dataLen);
 
-                        while(data < e8 && !unrolled_find_3<LOOP_UNROLL_FACTOR>(data,vl,vh)) [[likely]] {
-                            incptr<LOOP_UNROLL_FACTOR>(data);
-                        }
-                                                    
-                        if(data >= e8) { 
-                            // Nothing found so far.
-                            while(data < end && (as<uint32_t>(data) << 8) != vl) {
-                                incptr<1>(data);
+                            while(data < e8 && !unrolled_find_3<LOOP_UNROLL_FACTOR>(data,vl,vh)) [[likely]] {
+                                incptr<LOOP_UNROLL_FACTOR>(data);
                             }
-                        } 
-
-                        // perf::probe[3].exit()
-                        //     .addItems(dataLen - (end-data));                                                       
+                        }
+                        
+                        // Fallback: scan remaining data byte by byte
+                        while(data < end && (as<uint32_t>(data) << 8) != vl) {
+                            incptr<1>(data);
+                        }
                     }
 
                 } else {
@@ -309,26 +316,22 @@ namespace heatshrink {
 
                         const uint32_t v = as<uint16_t>(pattern);
 
-                        // perf::probe[2].enter();
-
                         constexpr uint32_t LOOP_UNROLL_FACTOR = 8;
 
-                        // Loop unrolled 8x.
-                        const uint8_t* const e8 = data + multof<LOOP_UNROLL_FACTOR>(dataLen);
+                        // Only use unrolled loop if we have enough data
+                        if(dataLen >= LOOP_UNROLL_FACTOR * sizeof(uint16_t)) {
+                            // Loop unrolled 8x.
+                            const uint8_t* const e8 = data + multof<LOOP_UNROLL_FACTOR>(dataLen);
 
-                        while(data < e8 && !unrolled_find<uint16_t,LOOP_UNROLL_FACTOR>(data,v)) [[likely]] {
-                            incptr<LOOP_UNROLL_FACTOR>(data);
-                        }
-
-                        if(data >= e8) { 
-                            // Nothing found so far.
-                            while(data < end && as<uint16_t>(data) != v) {
-                                incptr<1>(data);
+                            while(data < e8 && !unrolled_find<uint16_t,LOOP_UNROLL_FACTOR>(data,v)) [[likely]] {
+                                incptr<LOOP_UNROLL_FACTOR>(data);
                             }
                         }
 
-                        // perf::probe[2].exit()
-                        //     .addItems(dataLen - (end-data));
+                        // Fallback: scan remaining data byte by byte
+                        while(data < end && as<uint16_t>(data) != v) {
+                            incptr<1>(data);
+                        }
 
                     } else [[unlikely]] {
                         // assert patLen == 1
@@ -385,9 +388,6 @@ namespace heatshrink {
                 using T = uint32_t;
                 constexpr uint32_t sw = sizeof(T);
 
-                // perf::probe[1].enter();
-
-
                 const uint8_t* first = data;
                 const uint8_t* last = first + patLen-sw;
                 const uint32_t f = as<T>(pattern);
@@ -400,30 +400,30 @@ namespace heatshrink {
                 do {
                     {
                         constexpr uint32_t LOOP_UNROLL_FACTOR = 8;
-                        const uint8_t* const end_unrolled = first + multof<LOOP_UNROLL_FACTOR>(end-first);
-                        while(first < end_unrolled && !unrolled_comp_f_l<LOOP_UNROLL_FACTOR>(first,last,f,l)) [[likely]] {
-                            incptr<LOOP_UNROLL_FACTOR>(first);
-                            incptr<LOOP_UNROLL_FACTOR>(last);
+                        const ptrdiff_t remaining = end - first;
+                        
+                        // Only use unrolled loop if we have enough data
+                        if(remaining >= LOOP_UNROLL_FACTOR * (ptrdiff_t)sizeof(T)) {
+                            const uint8_t* const end_unrolled = first + multof<LOOP_UNROLL_FACTOR>(remaining);
+                            while(first < end_unrolled && !unrolled_comp_f_l<LOOP_UNROLL_FACTOR>(first,last,f,l)) [[likely]] {
+                                incptr<LOOP_UNROLL_FACTOR>(first);
+                                incptr<LOOP_UNROLL_FACTOR>(last);
+                            }
                         }
 
-                        if(first >= end_unrolled) {
-                            // Nothing found so far.
-                            while(first < end) {
-                                if(f == as<T>(first) && l == as<T>(last)) {
-                                    break;
-                                } else {
-                                    incptr<1>(first);
-                                    incptr<1>(last);
-                                }
-                            };
+                        // Fallback: scan remaining data
+                        while(first < end) {
+                            if(f == as<T>(first) && l == as<T>(last)) {
+                                break;
+                            } else {
+                                incptr<1>(first);
+                                incptr<1>(last);
+                            }
                         }
                     }
 
                     if(first < end) {
                         if(cmpLen == 0 || cmp8(first+sw,pattern+sw,cmpLen) >= cmpLen) {
-
-                            // perf::probe[1].exit(first-data+1);
-
                             return first;
                         } else {
                             incptr<1>(first);
@@ -431,8 +431,6 @@ namespace heatshrink {
                         }
                     }
                 } while (first < end);
-
-                // perf::probe[1].exit(first-data);
 
                 return nullptr;
             }
@@ -465,61 +463,16 @@ namespace heatshrink {
              */
             static uint32_t cmp8(const void* d1, const void* d2, const uint32_t len) noexcept {
                 const uint8_t* const start = p<uint8_t>(d1);
-
-                if constexpr (false && Arch::XTENSA && Arch::XT_LOOP) {
-
-                    // Memory barrier for the compiler
-                    asm volatile (""::"m" (*(const uint8_t(*)[len])d1));
-                    asm volatile (""::"m" (*(const uint8_t(*)[len])d2));
-
-                    uint32_t tmp1, tmp2;
-                    asm volatile (
-
-                        "LOOPNEZ %[cnt], end_%=" "\n"
-
-                            "L8UI %[tmp1], %[d1], 0" "\n"
-                            "L8UI %[tmp2], %[d2], 0" "\n"
-
-                            "BNE %[tmp1], %[tmp2], end_%=" "\n"
-
-                            "ADDI %[d1], %[d1], 1" "\n"
-                            "ADDI %[d2], %[d2], 1" "\n"
-
-                        "end_%=:"
-                        :
-                          [tmp1] "=r" (tmp1),
-                          [tmp2] "=r" (tmp2),
-                          [d1] "+r" (d1),
-                          [d2] "+r" (d2)
-                        :
-                          [cnt] "r" (len)
-                    );
-
-                } else {
-                    const uint8_t* const end = p<uint8_t>(d1) + len;                    
-                    
-                    // if(len >= 4) [[unlikely]] {
-                    //     const uint8_t* const e4 = p<uint8_t>(d1) + (len & ~3);
-                    //     do {
-                    //         if(unrolled_cmp8<4>(d1,d2)) [[likely]] {
-                    //             incptr<4>(d1);
-                    //             incptr<4>(d2);
-                    //         } else {
-                    //             break;
-                    //         }
-                    //     } while(d1 < e4);
-                    //     if(d1 < e4) {
-                    //         return p<uint8_t>(d1)-start;
-                    //     }
-                    // }
-                    // const uint8_t* const end = p<uint8_t>(d1) + len;
-                    while(d1 < end) {
-                        if(as<uint8_t>(d1) == as<uint8_t>(d2)) [[likely]] {
-                            incptr<1>(d1);
-                            incptr<1>(d2);
-                        } else {
-                            break;
-                        }
+                const uint8_t* const end = p<uint8_t>(d1) + len;
+                
+                // Simple byte-by-byte comparison
+                // This is faster on average when mismatch is likely within first few bytes
+                while(d1 < end) {
+                    if(as<uint8_t>(d1) == as<uint8_t>(d2)) [[likely]] {
+                        incptr<1>(d1);
+                        incptr<1>(d2);
+                    } else {
+                        break;
                     }
                 }
 

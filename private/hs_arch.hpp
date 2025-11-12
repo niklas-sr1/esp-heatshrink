@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 
 #ifdef __XTENSA__
 #include <xtensa/config/core-isa.h>
@@ -13,6 +14,38 @@ namespace heatshrink {
      * 
      */
     struct Arch {
+        
+        /**
+         * @brief Does this architecture support unaligned memory access?
+         * 
+         * This is required for the 32-bit optimizations to work correctly.
+         * Most modern architectures support unaligned access, though it may
+         * be slower than aligned access.
+         */
+        static constexpr bool UNALIGNED_ACCESS_OK =
+            #if defined(__ARM_FEATURE_UNALIGNED)
+                // ARM architectures with unaligned access support
+                true
+            #elif defined(__XTENSA__)
+                // Xtensa (ESP32) supports unaligned access
+                true
+            #elif defined(__x86_64__) || defined(__i386__)
+                // x86/x64 supports unaligned access
+                true
+            #elif defined(__riscv)
+                // RISC-V may or may not support unaligned access
+                // ESP32-C3 and similar do support it
+                #if defined(ESP_PLATFORM)
+                    true
+                #else
+                    // Conservative: assume RISC-V doesn't support it
+                    false
+                #endif
+            #else
+                // Unknown architecture - be conservative
+                false
+            #endif
+            ;
         /**
          * @brief Are we running on an Xtensa architecture?
          * 
