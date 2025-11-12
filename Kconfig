@@ -1,18 +1,85 @@
 menu "heatshrink"
+
+	choice HEATSHRINK_ALLOCATION_MODE
+		prompt "Memory allocation mode"
+		default HEATSHRINK_DYNAMIC_ALLOC_ENABLED
+		help
+			Choose between dynamic and static memory allocation.
+			Dynamic allocation uses malloc/free and allows runtime configuration.
+			Static allocation uses compile-time buffers and is suitable for embedded systems
+			with strict memory requirements.
+
+		config HEATSHRINK_DYNAMIC_ALLOC_ENABLED
+			bool "Dynamic allocation (malloc/free)"
+			help
+				Use dynamic memory allocation. This enables the heatshrink_encoder_alloc(),
+				heatshrink_encoder_free(), heatshrink_decoder_alloc(), and heatshrink_decoder_free()
+				functions, which allow runtime configuration of window and lookahead sizes.
+
+		config HEATSHRINK_STATIC_ALLOC_ENABLED
+			bool "Static allocation (compile-time buffers)"
+			help
+				Use static memory allocation with compile-time configured buffer sizes.
+				This disables the alloc/free functions and uses the static configuration
+				parameters below.
+	endchoice
+
+	menu "Static allocation configuration"
+		depends on HEATSHRINK_STATIC_ALLOC_ENABLED
+
+		config HEATSHRINK_STATIC_WINDOW_BITS
+			int "Static window size (2^N bytes)"
+			range 4 15
+			default 8
+			help
+				Set the window size to 2^N bytes for static allocation.
+				The window size determines how far back in the input can be searched for
+				repeated patterns. Larger values use more memory but may compress better.
+				Default: 8 (256 bytes window)
+
+		config HEATSHRINK_STATIC_LOOKAHEAD_BITS
+			int "Static lookahead size (2^N bytes)"
+			range 3 14
+			default 4
+			help
+				Set the lookahead size to 2^N bytes for static allocation.
+				The lookahead size determines the max length for repeated patterns.
+				Must be less than HEATSHRINK_STATIC_WINDOW_BITS.
+				Default: 4 (16 bytes lookahead)
+
+		config HEATSHRINK_STATIC_INPUT_BUFFER_SIZE
+			int "Static input buffer size (bytes)"
+			range 1 4096
+			default 32
+			help
+				Size of the input buffer for the decoder in static allocation mode.
+				This impacts how much work the decoder can do in a single step.
+				Default: 32 bytes
+	endmenu
+
 	config HEATSHRINK_USE_INDEX
-	bool "Use an index to speed up compression (uses more RAM)"
-	default n
-	help
-		Enables HEATSHRINK_USE_INDEX for compression; this increases RAM requirement during compression 
-		to about 3x, but can speed up compression by a factor of 10-20x.
+		bool "Use an index to speed up compression (uses more RAM)"
+		default n
+		help
+			Enables HEATSHRINK_USE_INDEX for compression; this increases RAM requirement during 
+			compression to about 3x (adds 2^(window_size+1) bytes), but can speed up compression 
+			by a factor of 10-20x.
+			Note: This option temporarily allocates 512 bytes on the stack during index construction.
 		
 	config HEATSHRINK_32BIT
-	# depends on !HEATSHRINK_USE_INDEX
-	bool "Use 32-bit or SIMD optimized code for compression"
-	default y
-	help
-		Enables HEATSHRINK_32BIT (32-bit optimizations).
-		If use of the index is not enabled, this also enables speed-optimized compression functions.
-		On ESP32-S3, these functions make use of the chip's SIMD instructions ("PIE") for increased speed.
-		
+		bool "Use 32-bit or SIMD optimized code for compression"
+		default y
+		help
+			Enables HEATSHRINK_32BIT (32-bit optimizations).
+			If use of the index is not enabled, this also enables speed-optimized compression functions.
+			On ESP32-S3, these functions make use of the chip's SIMD instructions ("PIE") for increased speed.
+			Note: Requires target architecture to support unaligned 32-bit memory reads.
+
+	config HEATSHRINK_DEBUGGING_LOGS
+		bool "Enable debugging logs"
+		default n
+		help
+			Enable verbose debugging logs for heatshrink operations.
+			This is useful for debugging compression/decompression issues but adds overhead.
+			
 endmenu

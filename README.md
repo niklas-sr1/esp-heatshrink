@@ -9,9 +9,53 @@ The original heatshrink is made into a component for use in ESP-IDF builds and s
 On the **ESP32-S3**, the MCU's SIMD instructions ("PIE") are used which further speeds up compression
 by a factor of _a lot_.
 
-Use of the 32-bit optimized variant can be enabled/disabled via menuconfig or by setting `HEATSHRINK_32BIT`
-to 1 or 0 in `heatshrink_config.h`; then, if built via ESP-IDF for an ESP32-S3, the SIMD variant is
-automatically built.
+## Configuration
+
+When using this library as an ESP-IDF component, all configuration is managed through **Kconfig** and accessible via `idf.py menuconfig` under "Component config" → "heatshrink". You no longer need to edit `heatshrink_config.h` directly.
+
+### Available Configuration Options
+
+All options are configurable through menuconfig:
+
+- **Memory Allocation Mode**: Choose between dynamic (malloc/free) or static (compile-time buffers)
+  - **Dynamic allocation** (default): Enables `heatshrink_encoder_alloc()` and `heatshrink_decoder_alloc()` functions
+  - **Static allocation**: Uses compile-time configured buffers (useful for embedded systems with strict memory requirements)
+
+- **32-bit Optimizations** (enabled by default): Uses optimized 32-bit code paths
+  - On ESP32-S3, automatically enables SIMD instructions ("PIE") for significant performance gains
+  - Requires target architecture to support unaligned 32-bit memory reads
+
+- **Use Index** (disabled by default): Enables indexing for faster compression
+  - Increases RAM usage by ~3x (adds 2^(window_size+1) bytes)
+  - Can speed up compression by 10-20x
+  - Temporarily allocates 512 bytes on the stack during index construction
+
+- **Static Allocation Parameters** (only when static allocation is selected):
+  - **Window Bits**: Window size as 2^N bytes (4-15, default: 8 = 256 bytes)
+  - **Lookahead Bits**: Lookahead size as 2^N bytes (3-14, default: 4 = 16 bytes)
+  - **Input Buffer Size**: Decoder input buffer size in bytes (1-4096, default: 32)
+
+- **Debugging Logs** (disabled by default): Enable verbose debug output
+
+### For Non-ESP-IDF Builds
+
+When building outside of ESP-IDF (e.g., for testing or use in other projects), the library falls back to sensible defaults. You can override configuration by defining the macros before including the headers:
+
+```c
+#define HEATSHRINK_DYNAMIC_ALLOC 0
+#define HEATSHRINK_STATIC_WINDOW_BITS 10
+#define HEATSHRINK_STATIC_LOOKAHEAD_BITS 5
+#define HEATSHRINK_32BIT 1
+#include "heatshrink_encoder.h"
+```
+
+### Migration from Previous Versions
+
+If you were previously editing `heatshrink_config.h` directly:
+1. Run `idf.py menuconfig`
+2. Navigate to "Component config" → "heatshrink"
+3. Configure your desired settings
+4. The settings are saved in `sdkconfig` and automatically propagated to the build
 
 ## Exemplary benchmarks
 
