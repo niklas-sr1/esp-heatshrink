@@ -12,7 +12,11 @@
 
 #include "hs_search.hpp"
 
-
+// Compile-time safety checks for platform requirements
+static_assert(heatshrink::Arch::UNALIGNED_ACCESS_OK,
+    "The 32-bit optimized heatshrink requires a platform that supports unaligned memory access. "
+    "If your platform does support unaligned access but this check fails, please update "
+    "private/hs_arch.hpp to recognize your architecture.");
 
 extern "C"
 {
